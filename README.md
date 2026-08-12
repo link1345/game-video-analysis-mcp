@@ -88,6 +88,114 @@ Use either `end` or `duration`. The default maximum is 12 frames, and the hard m
 
 The frame tools reject invalid timestamps, out-of-range timestamps, and excessive frame requests with structured MCP errors.
 
+### `get_clip`
+
+Extract a short MP4 clip from a local video.
+
+Input:
+
+```json
+{
+  "inputPath": "/absolute/path/to/video.mp4",
+  "start": "00:00:12.000",
+  "duration": 3,
+  "maxDurationSeconds": 10
+}
+```
+
+Use either `end` or `duration`. Timestamps may be seconds or `HH:MM:SS.mmm` strings. The default maximum clip duration is 30 seconds, with a hard maximum of 120 seconds. Output is re-encoded as an MP4 for stable compatibility, and an audio track is preserved when the source has one.
+
+Response fields:
+
+- `clipPath`
+- `startSeconds` / `start`, `endSeconds` / `end`, and `durationSeconds` / `duration`
+- `source.inputPath`, `source.width`, `source.height`, `source.durationSeconds`, and `source.audio`
+- `output.hasAudio` and `output.sizeBytes`
+- `outputDirectory`
+
+The clip tool rejects missing `end`/`duration`, out-of-range timestamps, reversed ranges, and clips longer than the configured maximum.
+
+### `get_audio`
+
+Extract an audio segment from a local video without forcing mono conversion.
+
+Input:
+
+```json
+{
+  "inputPath": "/absolute/path/to/video.mp4",
+  "start": "00:00:12.000",
+  "duration": 3,
+  "format": "wav",
+  "maxDurationSeconds": 30
+}
+```
+
+Use either `end` or `duration`. Timestamps may be seconds or `HH:MM:SS.mmm` strings. `format` defaults to `wav` for analysis-friendly PCM output; `m4a` is also available. The default maximum audio duration is 60 seconds, with a hard maximum of 300 seconds. The source channel configuration is preserved when ffmpeg can preserve it.
+
+Response fields:
+
+- `audioPath`
+- `format`
+- `startSeconds` / `start`, `endSeconds` / `end`, and `durationSeconds` / `duration`
+- `source.inputPath`, `source.durationSeconds`, and `source.audio`
+- `output.hasAudio`, `output.codec`, `output.sampleRate`, `output.channels`, `output.channelLayout`, and `output.sizeBytes`
+- `outputDirectory`
+
+The audio tool returns a structured `no_audio_stream` error for videos without audio, and rejects missing `end`/`duration`, out-of-range timestamps, reversed ranges, and audio segments longer than the configured maximum.
+
+### `crop_region`
+
+Extract a rectangular region from a single frame and optionally upscale it for closer HUD inspection.
+
+Input with pixel coordinates:
+
+```json
+{
+  "inputPath": "/absolute/path/to/video.mp4",
+  "timestamp": "00:00:12.500",
+  "region": {
+    "x": 1280,
+    "y": 80,
+    "width": 520,
+    "height": 180
+  },
+  "scale": 2,
+  "format": "png"
+}
+```
+
+Input with normalized coordinates:
+
+```json
+{
+  "inputPath": "/absolute/path/to/video.mp4",
+  "timestamp": 12.5,
+  "region": {
+    "x": 0.66,
+    "y": 0.05,
+    "width": 0.27,
+    "height": 0.17,
+    "unit": "normalized"
+  },
+  "scale": 2
+}
+```
+
+`timestamp` may be seconds or an `HH:MM:SS.mmm` string. `region.unit` defaults to `pixel`; normalized coordinates must fit inside the 0..1 source frame. `scale` defaults to 1. Upscaling uses nearest-neighbor interpolation to avoid unnecessary smoothing of small HUD text.
+
+Response fields:
+
+- `imagePath`
+- `timestampSeconds` and `timestamp`
+- `format` and `scale`
+- `region.unit`, `region.pixel`, and `region.normalized`
+- `output.width`, `output.height`, and `output.sizeBytes`
+- `source.inputPath`, `source.width`, `source.height`, and `source.durationSeconds`
+- `outputDirectory`
+
+The crop tool rejects out-of-range timestamps, regions outside the source frame, empty regions, and invalid scale values with structured MCP errors.
+
 ## Scope
 
 This foundation includes:
@@ -98,7 +206,8 @@ This foundation includes:
 - managed temporary workspace creation and cleanup
 - normalized video metadata through `get_video_info`
 - single and interval frame extraction through `get_frame` and `get_frames`
+- short MP4 clip extraction through `get_clip`
+- bounded audio segment extraction through `get_audio`
+- rectangular frame-region extraction and upscaling through `crop_region`
 - structured errors for missing binaries and invalid input
 - tests that exercise server startup, ffprobe execution, invalid input, missing binary handling, and temp cleanup
-
-Media extraction tools such as `get_clip` and `get_audio` are intentionally left for later issues.

@@ -10,7 +10,12 @@ export type MediaErrorCode =
   | "invalid_time_range"
   | "timestamp_out_of_range"
   | "too_many_frames"
-  | "frame_extraction_failed";
+  | "frame_extraction_failed"
+  | "invalid_crop_region"
+  | "crop_extraction_failed"
+  | "clip_extraction_failed"
+  | "no_audio_stream"
+  | "audio_extraction_failed";
 
 export class MediaError extends Error {
   constructor(

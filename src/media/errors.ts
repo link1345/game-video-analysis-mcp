@@ -5,7 +5,12 @@ export type MediaErrorCode =
   | "process_failed"
   | "process_timeout"
   | "invalid_probe_output"
-  | "temporary_workspace_error";
+  | "temporary_workspace_error"
+  | "invalid_timestamp"
+  | "invalid_time_range"
+  | "timestamp_out_of_range"
+  | "too_many_frames"
+  | "frame_extraction_failed";
 
 export class MediaError extends Error {
   constructor(

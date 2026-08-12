@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MediaError } from "./media/errors.js";
+import { FrameExtractionService } from "./media/frameExtraction.js";
 import { VideoInfoService } from "./media/videoInfo.js";
 
 export function createGameVideoAnalysisServer(): McpServer {
@@ -9,6 +10,7 @@ export function createGameVideoAnalysisServer(): McpServer {
     version: "0.1.0"
   });
   const videoInfoService = new VideoInfoService();
+  const frameExtractionService = new FrameExtractionService();
 
   server.registerResource(
     "server-capabilities",
@@ -34,7 +36,7 @@ export function createGameVideoAnalysisServer(): McpServer {
                 managedTemporaryFiles: true,
                 videoInfo: true
               },
-              tools: ["get_video_info"],
+              tools: ["get_video_info", "get_frame", "get_frames"],
               excluded: ["apex_specific_analysis", "ocr", "audio_event_classification", "coaching"]
             },
             null,
@@ -112,5 +114,103 @@ export function createGameVideoAnalysisServer(): McpServer {
     }
   );
 
+  server.registerTool(
+    "get_frame",
+    {
+      title: "Get frame",
+      description: "Extract one image frame from a local video at a requested timestamp.",
+      inputSchema: {
+        inputPath: z.string().min(1).describe("Local path to the video file to inspect."),
+        timestamp: z.union([z.number(), z.string()]).describe("Timestamp in seconds or HH:MM:SS.mmm form."),
+        format: z.enum(["png", "jpeg"]).optional().describe("Output image format. Defaults to png.")
+      },
+      outputSchema: {
+        inputPath: z.string(),
+        outputDirectory: z.string(),
+        frame: frameOutputSchema()
+      }
+    },
+    async (request) => toToolResponse(() => frameExtractionService.getFrame(request))
+  );
+
+  server.registerTool(
+    "get_frames",
+    {
+      title: "Get frames",
+      description: "Extract multiple image frames from a local video at a fixed interval.",
+      inputSchema: {
+        inputPath: z.string().min(1).describe("Local path to the video file to inspect."),
+        start: z.union([z.number(), z.string()]).describe("Start timestamp in seconds or HH:MM:SS.mmm form."),
+        end: z.union([z.number(), z.string()]).optional().describe("End timestamp in seconds or HH:MM:SS.mmm form."),
+        duration: z.number().positive().optional().describe("Duration in seconds when end is omitted."),
+        interval: z.number().positive().describe("Frame interval in seconds."),
+        maxFrames: z.number().int().positive().optional().describe("Maximum number of frames to extract. Defaults to 12."),
+        format: z.enum(["png", "jpeg"]).optional().describe("Output image format. Defaults to png.")
+      },
+      outputSchema: {
+        inputPath: z.string(),
+        outputDirectory: z.string(),
+        startSeconds: z.number(),
+        start: z.string(),
+        endSeconds: z.number(),
+        end: z.string(),
+        intervalSeconds: z.number(),
+        count: z.number(),
+        frames: z.array(frameOutputSchema())
+      }
+    },
+    async (request) => toToolResponse(() => frameExtractionService.getFrames(request))
+  );
+
   return server;
+}
+
+function frameOutputSchema() {
+  return z.object({
+    imagePath: z.string(),
+    timestampSeconds: z.number(),
+    timestamp: z.string(),
+    format: z.enum(["png", "jpeg"]),
+    source: z.object({
+      inputPath: z.string(),
+      width: z.number(),
+      height: z.number(),
+      durationSeconds: z.number()
+    })
+  });
+}
+
+async function toToolResponse<T>(callback: () => Promise<T>) {
+  try {
+    const structuredContent = await callback();
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(structuredContent, null, 2)
+        }
+      ],
+      structuredContent
+    };
+  } catch (error) {
+    const payload =
+      error instanceof MediaError
+        ? error.toJSON()
+        : {
+            code: "unexpected_error",
+            message: error instanceof Error ? error.message : String(error),
+            details: {}
+          };
+
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(payload, null, 2)
+        }
+      ]
+    };
+  }
 }

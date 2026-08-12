@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { MediaError } from "../src/media/errors.js";
 import { FfmpegRunner } from "../src/media/ffmpeg.js";
+import { FrameExtractionService, frameTimestamps, parseTimestamp } from "../src/media/frameExtraction.js";
 import { validateInputVideoPath } from "../src/media/paths.js";
 import { withTempWorkspace } from "../src/media/temp.js";
 import { formatDuration, parseFrameRate, VideoInfoService } from "../src/media/videoInfo.js";
@@ -184,6 +185,122 @@ describe("video info service", () => {
     expect(parseFrameRate("30000/1001")).toBeCloseTo(29.97, 2);
     expect(parseFrameRate("0/0")).toBeUndefined();
     expect(formatDuration(3661.25)).toBe("01:01:01.250");
+  });
+});
+
+describe("frame extraction service", () => {
+  test("extracts a single PNG frame with timestamp and source metadata", async () => {
+    await withTempWorkspace(async (workspace) => {
+      const videoPath = join(workspace.path, "frames.mp4");
+      const runner = new FfmpegRunner();
+      const service = new FrameExtractionService(runner);
+
+      await runner.runFfmpeg([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=320x180:rate=30",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        videoPath
+      ]);
+
+      const result = await service.getFrame({ inputPath: videoPath, timestamp: "00:00:00.500" });
+
+      expect(result.inputPath).toBe(videoPath);
+      expect(result.frame.timestampSeconds).toBe(0.5);
+      expect(result.frame.timestamp).toBe("00:00:00.500");
+      expect(result.frame.format).toBe("png");
+      expect(result.frame.source).toMatchObject({
+        inputPath: videoPath,
+        width: 320,
+        height: 180
+      });
+      expect(existsSync(result.frame.imagePath)).toBe(true);
+
+      await rm(result.outputDirectory, { recursive: true, force: true });
+    });
+  });
+
+  test("extracts multiple frames at a fixed interval", async () => {
+    await withTempWorkspace(async (workspace) => {
+      const videoPath = join(workspace.path, "sequence.mp4");
+      const runner = new FfmpegRunner();
+      const service = new FrameExtractionService(runner);
+
+      await runner.runFfmpeg([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=160x120:rate=24",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        videoPath
+      ]);
+
+      const result = await service.getFrames({
+        inputPath: videoPath,
+        start: 0,
+        end: "00:00:00.750",
+        interval: 0.25,
+        maxFrames: 4
+      });
+
+      expect(result.count).toBe(4);
+      expect(result.frames.map((frame) => frame.timestampSeconds)).toEqual([0, 0.25, 0.5, 0.75]);
+      expect(result.frames.every((frame) => existsSync(frame.imagePath))).toBe(true);
+      expect(result.frames.every((frame) => frame.source.width === 160 && frame.source.height === 120)).toBe(true);
+
+      await rm(result.outputDirectory, { recursive: true, force: true });
+    });
+  });
+
+  test("rejects out-of-range timestamps and excessive frame counts", async () => {
+    await withTempWorkspace(async (workspace) => {
+      const videoPath = join(workspace.path, "short.mp4");
+      const runner = new FfmpegRunner();
+      const service = new FrameExtractionService(runner);
+
+      await runner.runFfmpeg([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=160x90:rate=24",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        videoPath
+      ]);
+
+      await expect(service.getFrame({ inputPath: videoPath, timestamp: 2 })).rejects.toMatchObject({
+        code: "timestamp_out_of_range"
+      });
+
+      await expect(service.getFrames({ inputPath: videoPath, start: 0, duration: 1, interval: 0.1, maxFrames: 3 })).rejects.toMatchObject({
+        code: "too_many_frames"
+      });
+    });
+  });
+
+  test("parses second and clock timestamps and guards max frame expansion", () => {
+    expect(parseTimestamp("1.25")).toBe(1.25);
+    expect(parseTimestamp("01:02:03.250")).toBe(3723.25);
+    expect(frameTimestamps(0, 0.5, 0.25, 3)).toEqual([0, 0.25, 0.5]);
+    expect(() => frameTimestamps(0, 1, 0.25, 3)).toThrow(MediaError);
   });
 });
 

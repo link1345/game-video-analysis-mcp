@@ -16,7 +16,30 @@ bun test
 bun run start
 ```
 
-`bun run start` launches a stdio MCP server.
+`bun run start` launches a stdio MCP server. MCP clients can also run the package entrypoint directly:
+
+```json
+{
+  "mcpServers": {
+    "game-video-analysis": {
+      "command": "bun",
+      "args": ["/Users/link/dev/game-video-analysis-mcp/bin/game-video-analysis-mcp.ts"]
+    }
+  }
+}
+```
+
+If the package is linked or installed, use the binary name instead:
+
+```json
+{
+  "mcpServers": {
+    "game-video-analysis": {
+      "command": "game-video-analysis-mcp"
+    }
+  }
+}
+```
 
 ## Tools
 

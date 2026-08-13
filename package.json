@@ -4,10 +4,11 @@
   "type": "module",
   "private": true,
   "bin": {
-    "game-video-analysis-mcp": "./src/index.ts"
+    "game-video-analysis-mcp": "./bin/game-video-analysis-mcp.ts"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
+    "start": "bun run bin/game-video-analysis-mcp.ts",
+    "mcp:start": "bun run bin/game-video-analysis-mcp.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
